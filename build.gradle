@@ -1,0 +1,213 @@
+plugins {
+	id 'org.springframework.boot' version '3.1.6'
+    id 'io.spring.dependency-management' version '1.1.3'
+	id "com.github.hierynomus.license" version "0.16.1"
+	id "com.diffplug.spotless" version "6.9.0"
+	id "org.openapi.generator" version '5.4.0'
+	id "org.springdoc.openapi-gradle-plugin" version "1.6.0"
+	id 'com.jfrog.artifactory' version  '4.33.1'
+	id 'jacoco'
+	id 'java'
+	id 'groovy'
+	id 'eclipse'
+	id 'com.diffplug.eclipse.apt' version '3.35.0'
+}
+
+java {
+	modularity.inferModulePath = false
+}
+
+apply plugin: 'maven-publish'
+apply plugin: "com.github.hierynomus.license"
+apply plugin: 'application'
+application.mainClassName = 'com.blueyonder.featuretoggle.FeatureToggleApplication'
+
+
+eclipse {
+	//For eclipse run this command once = gradlew cleanEclipse eclipse cleanEclipseJdt eclipseJdt
+	synchronizationTasks eclipseJdtApt, eclipseFactorypath
+      project {
+        natures 'org.eclipse.buildship.core.gradleprojectnature'
+        buildCommand 'org.eclipse.buildship.core.gradleprojectbuilder'
+      }
+}
+
+group = 'com.blueyonder.featuretoggle'
+version = '1.0.0'
+sourceCompatibility = '17'
+
+spotless {
+}
+
+repositories {
+	mavenCentral()
+	flatDir {
+		dirs 'libs'
+	}
+	maven { url "https://maven.repository.redhat.com/ga/" }
+	maven {
+		url "${artifactory_url}/ibpplanning-snapshot-local"
+		credentials {
+			username = "$System.env.artifactory_username"
+			password = "$System.env.artifactory_password"
+		}
+		metadataSources {
+			artifact()
+		}
+	}
+	maven {
+		url "${artifactory_url}/jda-dev-repositories"
+		credentials {
+			username = "$System.env.artifactory_username"
+			password = "$System.env.artifactory_password"
+		}
+	}
+}
+ext {
+	set('springCloudVersion', "2021.0.3")
+	ext['spring-security.version'] = '6.1.5'
+}
+
+configurations {
+	apmJavaAgent
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+	all {
+		exclude group: 'org.glassfish', module: 'jakarta.el'
+		exclude group: 'org.yaml', module: 'snakeyaml'
+        resolutionStrategy {
+            force 'com.google.guava:guava:31.1.0.jre-redhat-00004'
+        }
+    }
+    
+}
+
+dependencies {
+	apmJavaAgent 'co.elastic.apm:elastic-apm-agent:1.31.0'
+	implementation 'co.elastic.apm:apm-agent-api:1.31.0'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-cache'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.liquibase:liquibase-core:4.17.2'
+	implementation 'org.codehaus.groovy:groovy:3.0.11'
+	implementation 'org.apache.commons:commons-lang3:3.12.0'
+	// Entity to Dto, Dto to Entity converter generator - Mapper classes
+	implementation 'commons-validator:commons-validator:1.7'
+	implementation 'org.openapitools:jackson-databind-nullable:0.2.3'
+	// jwk token parse library
+	implementation 'org.bitbucket.b_c:jose4j:0.9.3'
+	implementation 'com.google.code.findbugs:jsr305:3.0.2'
+	// open api documentation
+	// Open API Spec (JSON)  = http://localhost:8080/api-spec
+	// Open API Spec (YAML)  = http://localhost:8080/api-spec.yaml
+	// Swagger UI            = http://localhost:8080/swagger/swagger-ui.html
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.1.0'
+
+	implementation 'commons-beanutils:commons-beanutils:1.9.4'
+	implementation ('com.blueyonder.exec.ecom:liam-starter:3.14.0') {
+		exclude group: 'net.minidev', module:'json-smart'
+		exclude group: 'com.google.guava', module:'guava'
+	}
+	implementation 'com.jayway.jsonpath:json-path:2.8.0'
+	implementation 'com.google.guava:guava:31.1.0.jre-redhat-00004'
+
+	runtimeOnly 'com.microsoft.sqlserver:mssql-jdbc'
+
+	compileOnly 'org.projectlombok:lombok'
+
+	annotationProcessor 'org.projectlombok:lombok'
+	// JPA Static Meta Model Generator - Required for Dynamic Query Criteria for Search API implementation
+	annotationProcessor 'org.hibernate:hibernate-jpamodelgen:5.6.5.Final'
+
+	implementation "org.springframework.boot:spring-boot-starter-log4j2"
+	implementation group: 'co.elastic.logging', name: 'log4j2-ecs-layout', version: '0.1.3'
+	modules {
+		module("org.springframework.boot:spring-boot-starter-logging") {
+			replacedBy("org.springframework.boot:spring-boot-starter-log4j2", "Use Log4j2 instead of Logback")
+		}
+	}
+	testImplementation 'org.spockframework:spock-core:2.2-groovy-3.0'
+	testImplementation 'org.spockframework:spock-spring:2.2-groovy-3.0'
+}
+
+task copyApmAgent(type: Copy) {
+	println "Copying ${it} to ${project.buildDir}/javaApmAgent"
+	from configurations.apmJavaAgent
+	into "${project.buildDir}/javaApmAgent"
+	rename { "elastic-apm-agent" + it.substring(it.lastIndexOf("."), it.size()) }
+}
+assemble.dependsOn copyApmAgent
+bootRun.dependsOn copyApmAgent
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.cloud:spring-cloud-dependencies:${springCloudVersion}"
+		mavenBom 'org.springframework.security:spring-security-bom:6.1.2'
+	}
+}
+
+
+test {
+	useJUnitPlatform()
+}
+
+def jacocoExclude = [
+		'com/blueyonder/featuretoggle/util/token/**',
+		'com/blueyonder/featuretoggle/util/exception/**',
+		'com/blueyonder/featuretoggle/util/request/FeatureToggleRequestFilter.class',
+		'com/blueyonder/featuretoggle/util/development/controller/FeatureToggleLiamMockController.class',
+		'com/blueyonder/featuretoggle/util/development/filter/FeatureToggleRequestDevFilter.class',
+		'com/blueyonder/featuretoggle/config/FeatureToggleConfig.class',
+		'com/blueyonder/featuretoggle/config/HeaderInterceptor.class',
+		'com/blueyonder/featuretoggle/config/InterceptorConfig.class',
+		'com/blueyonder/featuretoggle/config/SecurityExpression.class'
+]
+
+jacocoTestCoverageVerification {
+	afterEvaluate {
+		classDirectories.setFrom(files(classDirectories.files.collect {
+			fileTree(dir: it, exclude: jacocoExclude)
+		}))
+	}
+	violationRules {
+		//enforce line coverage percentage
+		rule {
+			limit {
+				minimum = 0.9
+			}
+		}
+	}
+}
+
+jacocoTestReport {
+	group = "Reporting"
+	reports {
+		xml.enabled true
+		html.enabled true
+		csv.enabled false
+		html.destination file("${buildDir}/reports/coverage")
+	}
+	afterEvaluate {
+		classDirectories.setFrom(files(classDirectories.files.collect {
+			fileTree(dir: it, exclude: jacocoExclude)
+		}))
+	}
+}
+
+test {
+	finalizedBy jacocoTestReport
+	finalizedBy jacocoTestCoverageVerification
+}
+
+license {
+	license.skipExistingHeaders true
+	license.strictCheck true
+	ext.originalSourceCodeWrittenYear = Calendar.getInstance().get(Calendar.YEAR)
+	ext.yearOfLastModification = Calendar.getInstance().get(Calendar.YEAR)
+	includes(["**/*.java"])
+}
+classes.dependsOn(licenseFormat, spotlessApply)
